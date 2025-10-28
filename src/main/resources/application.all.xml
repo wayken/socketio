@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<socketio-config>
+    <!-- 基础配置 -->
+    <!-- 扫描基础包，必须配置，框架会自动扫描注解类 -->
+    <property name="basePackage">cloud.apposs.socketio.sample</property>
+    <!-- 项目输入输出编码 -->
+    <property name="charset">utf-8</property>
+    <!-- 绑定主机和端口 -->
+    <property name="host">0.0.0.0</property>
+    <property name="port">9088</property>
+    <property name="keepAlive">true</property>
+    <!-- 日志相关配置 -->
+    <!-- 日志输出级别，可为FATAL（致命）、ERROR（错误）、WARN（警告）、INFO（信息）、DEBUG（调试）、TRACE（追踪）、OFF（关闭） -->
+    <property name="logLevel">info</property>
+</socketio-config>
