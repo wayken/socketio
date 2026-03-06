@@ -8,7 +8,7 @@ import cloud.apposs.socketio.sample.bean.TweetMsg;
 public class TweetEndpoint {
     @OnConnect
     public void onConnect(SocketIOSession session) {
-        System.out.println(session.getSessionId() + " connected " + session.getNamespace().getAllSessions().size());
+        System.out.println(session.getSessionId() + " connected " + session.getNamespace().getSessions().size());
     }
 
     @OnEvent("ex_report_tweets_ts")

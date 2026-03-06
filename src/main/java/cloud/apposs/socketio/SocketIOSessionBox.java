@@ -34,4 +34,8 @@ public final class SocketIOSessionBox {
     public void removeSession(UUID sessionId) {
         sessionBox.remove(sessionId);
     }
+
+    public Map<UUID, SocketIOSession> getSessionBox() {
+        return sessionBox;
+    }
 }

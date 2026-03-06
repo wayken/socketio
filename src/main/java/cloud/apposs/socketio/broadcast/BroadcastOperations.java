@@ -13,21 +13,18 @@ public interface BroadcastOperations {
      * 发送自定义消息包给所有连接的客户端
      *
      * @param packet 消息包
+     * @return 是否成功发送
      */
-    void send(Packet packet);
+    boolean send(Packet packet);
 
     /**
      * 发送消息包给所有连接的客户端
      *
      * @param name 事件名称
      * @param data 事件数据
+     * @return 是否成功发送
      */
-    void sendEvent(String name, Object ... data);
-
-    /**
-     * 获取所有要广播的客户端
-     */
-    Collection<SocketIOSession> getClients();
+    boolean sendEvent(String name, Object ... data);
 
     /**
      * 断开所有连接的客户端

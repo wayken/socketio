@@ -1,7 +1,7 @@
 package cloud.apposs.socketio.scheduler;
 
 public class SchedulerKey {
-    public enum Type {PING, PING_TIMEOUT, ACK_TIMEOUT, UPGRADE_TIMEOUT};
+    public enum Type {PING, PING_TIMEOUT, ACK_TIMEOUT, UPGRADE_TIMEOUT, RENEWAL};
 
     private final Type type;
     private final Object sessionId;

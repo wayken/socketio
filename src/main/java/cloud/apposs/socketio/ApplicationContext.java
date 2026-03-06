@@ -53,6 +53,9 @@ public abstract class ApplicationContext {
 
         // 开始启动WebSocket服务
         start(config);
+
+        // 注册服务被kill时的回调
+        handleShutdownHookRegister();
     }
 
     /**
@@ -81,6 +84,18 @@ public abstract class ApplicationContext {
         for (String argument : jvmArguments) {
             Logger.info("Jvm Argument: [%s]", argument);
         }
+    }
+
+    /**
+     * 注册服务被kill时的回调，只能捕获kill -15的信号量 kill -9 没办法
+     */
+    private void handleShutdownHookRegister() {
+        Runtime.getRuntime().addShutdownHook(new Thread(){
+            @Override
+            public void run() {
+                shutdown();
+            }
+        });
     }
 
     public void shutdown() {

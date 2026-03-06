@@ -16,7 +16,7 @@ import java.util.concurrent.ConcurrentMap;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicLong;
 
-public class AckManager {
+public class AckManager implements Disconnectable {
     static class AckEntry {
         final Map<Long, AckCallback<?>> ackCallbacks = PlatformDependent.newConcurrentHashMap();
         final AtomicLong ackIndex = new AtomicLong(-1);
@@ -140,6 +140,7 @@ public class AckManager {
         }, callback.getTimeout(), TimeUnit.SECONDS);
     }
 
+    @Override
     public void onDisconnect(SocketIOSession session) {
         AckEntry e = ackEntries.remove(session.getSessionId());
         if (e == null) {

@@ -61,14 +61,14 @@ public class ChatEndpoint {
     public void onConnect(SocketIOSession session) {
         System.out.println("Client connected: " + session.getSessionId());
     }
-    
+
     @OnEvent("message")
     public void onMessage(SocketIOSession session, String message) {
         System.out.println("Received message: " + message);
         // Reply with message
         session.sendEvent("message", "Server reply: " + message);
     }
-    
+
     @OnDisconnect
     public void onDisconnect(SocketIOSession session) {
         System.out.println("Client disconnected: " + session.getSessionId());

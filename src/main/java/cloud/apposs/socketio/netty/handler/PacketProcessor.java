@@ -54,7 +54,7 @@ public class PacketProcessor {
                 session.schedulePingTimeout();
                 SchedulerKey key = new SchedulerKey(SchedulerKey.Type.UPGRADE_TIMEOUT, session.getSessionId());
                 scheduler.cancel(key);
-                session.upgradeTransport(transport);
+                session.handleTransportUpgrade(transport);
                 break;
             }
 

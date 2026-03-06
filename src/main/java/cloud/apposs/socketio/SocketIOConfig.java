@@ -8,29 +8,19 @@ import java.io.InputStream;
 import java.net.InetSocketAddress;
 
 public class SocketIOConfig {
-    /**
-     * 扫描基础包，必须配置，框架会自动扫描ServerEndpoint注解类并对SocketIO.On注解方法进行映射
-     */
+    // 扫描基础包，必须配置，框架会自动扫描ServerEndpoint注解类并对SocketIO.On注解方法进行映射
     protected String basePackage;
 
-    /**
-     * 绑定服务器地址
-     */
+    // 绑定服务器地址
     private String host = "0.0.0.0";
-    /**
-     * 绑定服务器端口
-     */
+    // 绑定服务器端口
     private int port = 7018;
-    /**
-     * 绑定的主机列表
-     */
+    // 绑定的主机列表
     private InetSocketAddress bindSocketAddress;
 
     private int backlog = 1024;
 
-    /**
-     * 是否开启HTTP压缩
-     */
+    // 是否开启HTTP压缩
     private boolean httpCompression = true;
 
     private boolean reuseAddress = true;
@@ -49,81 +39,53 @@ public class SocketIOConfig {
      */
     private int numOfGroup = Runtime.getRuntime().availableProcessors() + 1;
 
-    /**
-     * 工作线程池数量
-     */
+    // 工作线程池数量
     private int workerCount = Runtime.getRuntime().availableProcessors() << 1;
 
-    /**
-     * 是否输出系统信息
-     */
+    // 是否输出系统信息
     protected boolean showSysInfo = true;
 
-    /**
-     * 自定义JSON解析器
-     */
+    // 自定义JSON解析器
     private JsonSupport jsonSupport;
 
-    /**
-     * 第一次建立TCP连接时数据传输之间超时时间，
-     * 避免'silent channel'静默攻击导致的'Too many open files'问题
-     */
+    // 第一次建立TCP连接时数据传输之间超时时间， 避免'silent channel'静默攻击导致的'Too many open files'问题
     private int firstDataTimeout = 5000;
 
-    /**
-     * 和客户端协商心跳超时时间，为0则表示关闭
-     */
+    // 和客户端协商心跳超时时间，为0则表示关闭
     private int pingTimeout = 60000;
 
-    /**
-     * 和客户端协商心跳检测间隔时间
-     */
+    // 和客户端协商心跳检测间隔时间
     private int pingInterval = 25000;
+
+    // 和分布式服务协商续约时间，默认为60000毫秒，续约成功后分布式服务会将服务注册信息的过期时间延长续约时间
+    private int renewalInterval = 60000;
 
     private int upgradeTimeout = 10000;
 
-    /**
-     * Maximum http content length limit
-     */
+    // Maximum http content length limit
     private int maxHttpContentLength = 2 * 1024 * 1024;
 
-    /**
-     * Maximum websocket frame content length limit
-     */
+    // Maximum websocket frame content length limit
     private int maxFramePayloadLength = 2 * 1024 * 1024;
 
-    /**
-     * 服务是否为只读
-     */
+    // 服务是否为只读
     private boolean readOnly;
 
-    /**
-     * 是否为调式模式
-     */
+    // 是否为调式模式
     private boolean debug;
 
-    /**
-     * 服务编码
-     */
+    // 服务编码
     private String charset = "utf-8";
 
-    /**
-     * 发送数据缓存默认分配内存大小
-     */
+    // 发送数据缓存默认分配内存大小
     private int bufferSize = 2 * 1024;
-    /**
-     * 是否直接使用堆内存
-     */
+    // 是否直接使用堆内存
     private boolean preferDirectBuffer = false;
 
-    /**
-     * 是否保持服务器端长连接，不检查网络超时
-     */
+    // 是否保持服务器端长连接，不检查网络超时
     private boolean keepAlive = false;
 
-    /**
-     * 是否头部响应版本信息
-     */
+    // 是否头部响应版本信息
     private boolean addVersionHeader = true;
 
     /**
@@ -135,20 +97,22 @@ public class SocketIOConfig {
      */
     private String allowOrigin;
 
-    /**
-     * Set the response Access-Control-Allow-Headers
-     */
+    // Set the response Access-Control-Allow-Headers
     private String allowHeaders;
 
     private boolean websocketCompression = true;
 
-    /**
-     * SSL证书相关配置
-     */
+    // 分布式部署类型，默认为内存分布式，支持memory/redission/hazelcast等
+    private String distributedType = SocketIOConstants.DISTRIBUTED_SERVICE_MEMORY;
+    // 分布式服务名称，分布式部署时必须配置，框架会根据此名称进行服务注册和发现，做到不同业务实例可以部署在同一分布式环境中而互不干扰
+    // 注意：分布式服务名称必须唯一，不能和其他业务实例的分布式服务名称重复，但同一业务实例部署在多台服务器中必须使用相同的分布式服务名称才能做成一个集群
+    private String distributedServiceName = "socketio";
+    // 分布式服务注册地址
+    private String distributedServerAddress = "127.0.0.1:3679";
+
+    // SSL证书相关配置
     private String sslProtocol = "TLSv1";
-
     private boolean needClientAuth = false;
-
     private String keyStoreFormat = "JKS";
     private InputStream keyStore;
     private String keyStorePassword;
@@ -157,9 +121,7 @@ public class SocketIOConfig {
     private InputStream trustStore;
     private String trustStorePassword;
 
-    /**
-     * 日志输出终端
-     */
+    // 日志输出终端
     private String logAppender = Appender.CONSOLE;
 
     /**
@@ -174,19 +136,13 @@ public class SocketIOConfig {
      */
     private String logLevel = "INFO";
 
-    /**
-     * 日志的存储路径
-     */
+    // 日志的存储路径
     private String logPath = "log";
 
-    /**
-     * 日志输出模板
-     */
+    // 日志输出模板
     private String logFormat = Logger.DEFAULT_LOG_FORMAT;
 
-    /**
-     * 业务自定义配置
-     */
+    // 业务自定义配置
     protected Object options;
 
     public String getBasePackage() {
@@ -309,6 +265,14 @@ public class SocketIOConfig {
         this.pingInterval = pingInterval;
     }
 
+    public int getRenewalInterval() {
+        return renewalInterval;
+    }
+
+    public void setRenewalInterval(int renewalInterval) {
+        this.renewalInterval = renewalInterval;
+    }
+
     public int getUpgradeTimeout() {
         return upgradeTimeout;
     }
@@ -411,6 +375,30 @@ public class SocketIOConfig {
 
     public void setWebsocketCompression(boolean websocketCompression) {
         this.websocketCompression = websocketCompression;
+    }
+
+    public String getDistributedType() {
+        return distributedType;
+    }
+
+    public void setDistributedType(String distributedType) {
+        this.distributedType = distributedType;
+    }
+
+    public String getDistributedServiceName() {
+        return distributedServiceName;
+    }
+
+    public void setDistributedServiceName(String distributedServiceName) {
+        this.distributedServiceName = distributedServiceName;
+    }
+
+    public String getDistributedServerAddress() {
+        return distributedServerAddress;
+    }
+
+    public void setDistributedServerAddress(String distributedServerAddress) {
+        this.distributedServerAddress = distributedServerAddress;
     }
 
     public String getSslProtocol() {

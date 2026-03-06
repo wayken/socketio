@@ -182,9 +182,8 @@ public class JacksonJsonSupport implements JsonSupport {
         }
 
         @Override
-        public void serialize(byte[] value, JsonGenerator jgen, SerializerProvider provider)
-                throws IOException, JsonGenerationException {
-            Map<String, Object> map = new HashMap<String, Object>();
+        public void serialize(byte[] value, JsonGenerator jgen, SerializerProvider provider) throws IOException {
+            Map<String, Object> map = new HashMap<>();
             map.put("num", arrays.get().size());
             map.put("_placeholder", true);
             jgen.writeObject(map);

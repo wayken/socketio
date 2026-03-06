@@ -8,7 +8,7 @@ import cloud.apposs.socketio.sample.bean.ChatObject;
 public class SocketIoEndpoint {
     @OnConnect
     public void onConnect(SocketIOSession session) {
-        System.out.println("connected " + session.getNamespace().getAllSessions().size());
+        System.out.println("connected " + session.getNamespace().getSessions().size());
     }
 
     @OnEvent("chatevent")
@@ -16,7 +16,7 @@ public class SocketIoEndpoint {
         System.out.println(count);
         System.out.println("onEvent01");
         data.setMessage("from server0");
-        session.getBroadcastOperations().sendEvent("chatevent", data, 101);
+        session.getDistributedRoomOperations().sendEvent("chatevent", data, 101);
     }
 
     @OnEvent("event_send02")

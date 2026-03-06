@@ -61,14 +61,14 @@ public class ChatEndpoint {
     public void onConnect(SocketIOSession session) {
         System.out.println("客户端连接: " + session.getSessionId());
     }
-    
+
     @OnEvent("message")
     public void onMessage(SocketIOSession session, String message) {
         System.out.println("收到消息: " + message);
         // 回复消息
         session.sendEvent("message", "服务器回复: " + message);
     }
-    
+
     @OnDisconnect
     public void onDisconnect(SocketIOSession session) {
         System.out.println("客户端断开连接: " + session.getSessionId());

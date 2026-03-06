@@ -2,10 +2,10 @@ package cloud.apposs.socketio;
 
 import cloud.apposs.logger.Logger;
 import cloud.apposs.socketio.broadcast.BroadcastOperations;
+import cloud.apposs.socketio.distributed.pubsub.IPubSubService;
 import cloud.apposs.socketio.messages.OutPacketMessage;
 import cloud.apposs.socketio.namespace.Namespace;
 import cloud.apposs.socketio.protocol.*;
-import cloud.apposs.socketio.scheduler.CancelableScheduler;
 import cloud.apposs.socketio.scheduler.SchedulerKey;
 import cloud.apposs.socketio.transport.Transport;
 import io.netty.channel.Channel;
@@ -22,8 +22,8 @@ import java.util.concurrent.atomic.AtomicBoolean;
 /**
  * SocketIO 会话，即客户端连接，负责管理客户端连接的所有信息
  */
-public class SocketIOSession {
-    public static final AttributeKey<SocketIOSession> SESSION = AttributeKey.<SocketIOSession>valueOf("session");
+public final class SocketIOSession {
+    public static final AttributeKey<SocketIOSession> SESSION = AttributeKey.valueOf("session");
 
     // 会话ID，每个客户端连接都会有一个唯一的会话ID
     private final UUID sessionId;
@@ -37,10 +37,10 @@ public class SocketIOSession {
     private final HandshakeData handshakeData;
 
     // 会话连接的通道，即客户端连接的通道
-    private final Map<Transport, TransportState> channels = new HashMap<Transport, TransportState>(2);
+    private final Map<Transport, TransportState> channels = new HashMap<>(2);
 
     // 当前会话请求存储的一些状态值
-    private final Map<Object, Object> attributes = new ConcurrentHashMap<Object, Object>(1);
+    private final Map<Object, Object> attributes = new ConcurrentHashMap<>(1);
 
     // SocketIO 客户端版本
     private final EngineIOVersion version;
@@ -48,10 +48,7 @@ public class SocketIOSession {
     private volatile Transport transport;
 
     // 当前会话所属的命名空间
-    private Namespace namespace;
-
-    // 会话定时器
-    private final CancelableScheduler scheduler;
+    private final Namespace namespace;
 
     // 会话集，用于管理所有会话
     private final SocketIOSessionBox sessionBox;
@@ -60,25 +57,29 @@ public class SocketIOSession {
 
     private final SocketIOConfig configuration;
 
-    private final Disconnectable disconnectable;
-
     private Packet lastBinaryPacket;
 
-    public SocketIOSession(UUID sessionId, String path, HandshakeData handshakeData, Transport transport,
-                           CancelableScheduler scheduler, SocketIOSessionBox sessionBox, SocketIOContextHolder contextHolder,
-                           SocketIOConfig configuration, Map<String, List<String>> params, Disconnectable disconnectable) {
-        this.sessionId = sessionId;
+    public SocketIOSession(
+            String path,
+            UUID sessionId,
+            HandshakeData handshakeData,
+            Transport transport,
+            SocketIOSessionBox sessionBox,
+            SocketIOContextHolder contextHolder,
+            SocketIOConfig configuration,
+            Map<String, List<String>> parameters
+    ) {
         this.path = path;
+        this.sessionId = sessionId;
         this.handshakeData = handshakeData;
         this.transport = transport;
-        this.scheduler = scheduler;
+        this.namespace = contextHolder.getNamespacesHub().get(path);
         this.sessionBox = sessionBox;
         this.contextHolder = contextHolder;
         this.configuration = configuration;
-        this.disconnectable = disconnectable;
         this.channels.put(Transport.POLLING, new TransportState());
         this.channels.put(Transport.WEBSOCKET, new TransportState());
-        List<String> versions = params.getOrDefault(EngineIOVersion.EIO, new ArrayList<String>());
+        List<String> versions = parameters.getOrDefault(EngineIOVersion.EIO, new ArrayList<>());
         if (versions.isEmpty()) {
             this.version = EngineIOVersion.UNKNOWN;
         } else {
@@ -102,27 +103,8 @@ public class SocketIOSession {
         return transport;
     }
 
-    public void upgradeTransport(Transport currentTransport) {
-        TransportState state = channels.get(currentTransport);
-        for (Map.Entry<Transport, TransportState> entry : channels.entrySet()) {
-            if (!entry.getKey().equals(currentTransport)) {
-                Queue<Packet> queue = entry.getValue().getPacketsQueue();
-                state.setPacketsQueue(queue);
-                doSendPackets(currentTransport, state.getChannel());
-                this.transport = currentTransport;
-                Logger.debug("Transport upgraded to: %s for: %s", currentTransport, sessionId);
-                break;
-            }
-        }
-    }
-
     public Namespace getNamespace() {
         return namespace;
-    }
-
-    public void setNamespace(Namespace namespace) {
-        this.namespace = namespace;
-        namespace.addSession(this);
     }
 
     /**
@@ -130,6 +112,19 @@ public class SocketIOSession {
      */
     public boolean isConnected() {
         return !disconnected.get();
+    }
+
+    /**
+     * 判断当前网络会话是否建立连接
+     */
+    public boolean isChannelOpen() {
+        for (TransportState state : channels.values()) {
+            if (state.getChannel() != null
+                    && state.getChannel().isActive()) {
+                return true;
+            }
+        }
+        return false;
     }
 
     /**
@@ -147,15 +142,7 @@ public class SocketIOSession {
         return handshakeData.getHttpHeaders().get(HttpHeaderNames.ORIGIN);
     }
 
-    public void setLastBinaryPacket(Packet lastBinaryPacket) {
-        this.lastBinaryPacket = lastBinaryPacket;
-    }
-
-    public Packet getLastBinaryPacket() {
-        return lastBinaryPacket;
-    }
-
-    public final Object getAttribute(Object key) {
+    public Object getAttribute(Object key) {
         return getAttribute(key, null);
     }
 
@@ -166,7 +153,7 @@ public class SocketIOSession {
      * @param  defaultVal 默认值
      * @return 状态值
      */
-    public final Object getAttribute(Object key, Object defaultVal) {
+    public Object getAttribute(Object key, Object defaultVal) {
         Object attr = attributes.get(key);
         if (attr == null && defaultVal != null) {
             attr = defaultVal;
@@ -182,7 +169,7 @@ public class SocketIOSession {
      * @param  value 状态值
      * @return 之前的状态值
      */
-    public final Object setAttribute(Object key, Object value) {
+    public Object setAttribute(Object key, Object value) {
         return attributes.put(key, value);
     }
 
@@ -192,7 +179,7 @@ public class SocketIOSession {
      * @param  key 状态键
      * @return 状态值是否存在
      */
-    public final boolean hasAttribute(Object key) {
+    public boolean hasAttribute(Object key) {
         return attributes.containsKey(key);
     }
 
@@ -207,64 +194,71 @@ public class SocketIOSession {
     }
 
     /**
-     * 获取指定房间内的所有客户端连接数量
+     * 发送事件消息数据包
      *
-     * @param  room 房间名
-     * @return 房间内的所有客户端连接数量
+     * @param name 事件名称
+     * @param data 事件数据
      */
-    public int getCurrentRoomSize(String room) {
-        return namespace.getRoomClientsInCluster(room);
+    public void sendEvent(String name, Object ... data) {
+        Packet packet = new Packet(PacketType.MESSAGE, getVersion());
+        packet.setSubType(PacketType.EVENT);
+        packet.setName(name);
+        packet.setData(Arrays.asList(data));
+        send(packet);
     }
 
     /**
-     * 获取当前客户端加入的所有房间
+     * 发送自定义消息数据包
      *
-     * @return 房间名集合
+     * @param packet 消息数据包
      */
-    public Set<String> getAllRooms() {
-        return namespace.getRooms(this);
+    public ChannelFuture send(Packet packet) {
+        return send(packet, getTransport());
     }
 
     /**
-     * 当前客户端加入指定房间
+     * 发送自定义消息数据包
      *
-     * @param room 房间名
+     * @param  packet 消息数据包
+     * @param  transport 传输方式
+     * @return 异步操作句柄
      */
-    public void joinRoom(String room) {
-        namespace.joinRoom(room, getSessionId());
+    public ChannelFuture send(Packet packet, Transport transport) {
+        TransportState state = channels.get(transport);
+        state.getPacketsQueue().add(packet);
+
+        Channel channel = state.getChannel();
+        if (channel == null
+                || (transport == Transport.POLLING && channel.attr(ChannelAttributeKey.WRITE_ONCE).get() != null)) {
+            return null;
+        }
+        return handlePacketsSend(transport, channel);
     }
 
     /**
-     * 当前客户端加入指定房间
+     * 获取分布式环境下指定会话ID的客户端连接
      *
-     * @param rooms 房间名
+     * @param  sessionId 客户端连接ID
+     * @return 客户端连接对象，如果当前实例没有该连接，则返回null
      */
-    public void joinRooms(Set<String> rooms) {
-        namespace.joinRooms(rooms, getSessionId());
+    public BroadcastOperations getDistributedSessionOperations(UUID sessionId) {
+        return namespace.getSessionOperations(sessionId);
     }
 
     /**
-     * 当前客户端离开指定房间
+     * 获取分布式环境下指定会话ID集合的客户端连接
      *
-     * @param room 房间名
+     * @param  sessionIds 客户端连接ID集合
+     * @return 客户端连接对象集合
      */
-    public void leaveRoom(String room) {
-        namespace.leaveRoom(room, getSessionId());
-    }
-
-    /**
-     * 当前客户端离开指定房间
-     *
-     * @param rooms 房间名
-     */
-    public void leaveRooms(Set<String> rooms) {
-        namespace.leaveRooms(rooms, getSessionId());
+    public BroadcastOperations getDistributedSessionOperations(Collection<UUID> sessionIds) {
+        return namespace.getMultiSessionOperations(sessionIds);
     }
 
     /**
      * 获取当前命名空间下所有默认房间内的客户端连接进行后续广播操作
      */
-    public BroadcastOperations getBroadcastOperations() {
+    public BroadcastOperations getDistributedRoomOperations() {
         return namespace.getBroadcastOperations();
     }
 
@@ -274,7 +268,7 @@ public class SocketIOSession {
      * @param  room 房间名
      * @return 房间内的所有客户端连接
      */
-    public BroadcastOperations getRoomOperations(String room) {
+    public BroadcastOperations getDistributedRoomOperations(String room) {
         return namespace.getRoomOperations(room);
     }
 
@@ -284,8 +278,70 @@ public class SocketIOSession {
      * @param  rooms 房间名
      * @return 房间内的所有客户端连接
      */
-    public BroadcastOperations getRoomOperations(String... rooms) {
+    public BroadcastOperations getDistributedRoomOperations(Collection<String> rooms) {
         return namespace.getRoomOperations(rooms);
+    }
+
+    public Set<String> getAllRooms() {
+        return namespace.getSessionDistributedRooms(sessionId);
+    }
+
+    /**
+     * 当前客户端加入指定房间
+     *
+     * @param room 房间名
+     */
+    public void joinRoom(String room) {
+        namespace.joinRoom(room, sessionId);
+    }
+
+    /**
+     * 当前客户端加入指定房间
+     *
+     * @param rooms 房间名
+     */
+    public void joinRooms(Set<String> rooms) {
+        namespace.joinRooms(rooms, sessionId);
+    }
+
+    /**
+     * 当前客户端离开指定房间
+     *
+     * @param room 房间名
+     */
+    public void leaveRoom(String room) {
+        namespace.leaveRoom(room, sessionId);
+    }
+
+    /**
+     * 当前客户端离开指定房间
+     *
+     * @param rooms 房间名
+     */
+    public void leaveRooms(Set<String> rooms) {
+        namespace.leaveRooms(rooms, sessionId);
+    }
+
+    public void setLastBinaryPacket(Packet lastBinaryPacket) {
+        this.lastBinaryPacket = lastBinaryPacket;
+    }
+
+    public Packet getLastBinaryPacket() {
+        return lastBinaryPacket;
+    }
+
+    public void handleTransportUpgrade(Transport currentTransport) {
+        TransportState state = channels.get(currentTransport);
+        for (Map.Entry<Transport, TransportState> entry : channels.entrySet()) {
+            if (!entry.getKey().equals(currentTransport)) {
+                Queue<Packet> queue = entry.getValue().getPacketsQueue();
+                state.setPacketsQueue(queue);
+                handlePacketsSend(currentTransport, state.getChannel());
+                this.transport = currentTransport;
+                Logger.debug("Transport upgraded to: %s for: %s", currentTransport, sessionId);
+                break;
+            }
+        }
     }
 
     public boolean isTransportChannel(Channel channel, Transport transport) {
@@ -303,7 +359,7 @@ public class SocketIOSession {
             sessionBox.remove(prevChannel);
         }
         sessionBox.add(channel, this);
-        doSendPackets(transport, channel);
+        handlePacketsSend(transport, channel);
         Logger.debug("bind channel: %s to transport: %s", channel, transport);
     }
 
@@ -318,7 +374,7 @@ public class SocketIOSession {
     public void schedulePing() {
         cancelPing();
         final SchedulerKey key = new SchedulerKey(SchedulerKey.Type.PING, sessionId);
-        scheduler.schedule(key, () -> {
+        contextHolder.getScheduler().schedule(key, () -> {
             SocketIOSession session = sessionBox.get(sessionId);
             if (session != null) {
                 EngineIOVersion version = session.getVersion();
@@ -343,7 +399,7 @@ public class SocketIOSession {
         cancelPingTimeout();
         // 创建新的ping超时检测任务
         SchedulerKey key = new SchedulerKey(SchedulerKey.Type.PING_TIMEOUT, sessionId);
-        scheduler.schedule(key, () -> {
+        contextHolder.getScheduler().schedule(key, () -> {
             SocketIOSession session = sessionBox.get(sessionId);
             if (session != null) {
                 session.disconnect();
@@ -354,57 +410,33 @@ public class SocketIOSession {
         }, configuration.getPingTimeout() + configuration.getPingInterval(), TimeUnit.MILLISECONDS);
     }
 
+    public void scheduleRenewal() {
+        cancelRenewal();
+        // 创建新的分布式服务注册续期检测任务
+        SchedulerKey key = new SchedulerKey(SchedulerKey.Type.RENEWAL, sessionId);
+        contextHolder.getScheduler().schedule(key, () -> {
+            SocketIOSession session = sessionBox.get(sessionId);
+            if (session != null && session.isChannelOpen()) {
+                IPubSubService pubSubService = namespace.getPubSubService();
+                pubSubService.registerSession(namespace.getName(), sessionId);
+                scheduleRenewal();
+            }
+        }, configuration.getRenewalInterval(), TimeUnit.MILLISECONDS);
+    }
+
     public void cancelPing() {
         SchedulerKey key = new SchedulerKey(SchedulerKey.Type.PING, sessionId);
-        scheduler.cancel(key);
+        contextHolder.getScheduler().cancel(key);
     }
 
     public void cancelPingTimeout() {
         SchedulerKey key = new SchedulerKey(SchedulerKey.Type.PING_TIMEOUT, sessionId);
-        scheduler.cancel(key);
+        contextHolder.getScheduler().cancel(key);
     }
 
-    /**
-     * 发送自定义消息数据包
-     *
-     * @param  packet 消息数据包
-     * @return 异步操作句柄
-     */
-    public ChannelFuture send(Packet packet) {
-        return send(packet, getTransport());
-    }
-
-    /**
-     * 发送自定义消息数据包
-     *
-     * @param  packet 消息数据包
-     * @param  transport 传输方式
-     * @return 异步操作句柄
-     */
-    public ChannelFuture send(Packet packet, Transport transport) {
-        TransportState state = channels.get(transport);
-        state.getPacketsQueue().add(packet);
-
-        Channel channel = state.getChannel();
-        if (channel == null
-                || (transport == Transport.POLLING && channel.attr(ChannelAttributeKey.WRITE_ONCE).get() != null)) {
-            return null;
-        }
-        return doSendPackets(transport, channel);
-    }
-
-    /**
-     * 发送消息数据包
-     *
-     * @param name 事件名称
-     * @param data 数据包，可由业务自定义JSON对象格式
-     */
-    public void sendEvent(String name, Object ... data) {
-        Packet packet = new Packet(PacketType.MESSAGE, getVersion());
-        packet.setSubType(PacketType.EVENT);
-        packet.setName(name);
-        packet.setData(Arrays.asList(data));
-        send(packet);
+    public void cancelRenewal() {
+        SchedulerKey key = new SchedulerKey(SchedulerKey.Type.RENEWAL, sessionId);
+        contextHolder.getScheduler().cancel(key);
     }
 
     /**
@@ -413,7 +445,7 @@ public class SocketIOSession {
     public void disconnect() {
         Packet packet = new Packet(PacketType.MESSAGE, version);
         packet.setSubType(PacketType.DISCONNECT);
-        ChannelFuture future = send(packet);
+        ChannelFuture future = send(packet, getTransport());
         if (future != null) {
             future.addListener(ChannelFutureListener.CLOSE);
         }
@@ -424,14 +456,11 @@ public class SocketIOSession {
     public void onChannelDisconnect() {
         cancelPing();
         cancelPingTimeout();
+        cancelRenewal();
 
         disconnected.set(true);
         sessionBox.removeSession(sessionId);
-        // 有可能只是在握手阶段断开连接，此时namespace还未初始化
-        if (namespace != null) {
-            namespace.onDisconnect(this);
-        }
-        disconnectable.onDisconnect(this);
+        namespace.onDisconnect(this);
         try {
             contextHolder.onDisconnect(this);
         } catch (Throwable e) {
@@ -445,7 +474,7 @@ public class SocketIOSession {
         }
     }
 
-    private ChannelFuture doSendPackets(Transport transport, Channel channel) {
+    private ChannelFuture handlePacketsSend(Transport transport, Channel channel) {
         return channel.writeAndFlush(new OutPacketMessage(this, transport));
     }
 }

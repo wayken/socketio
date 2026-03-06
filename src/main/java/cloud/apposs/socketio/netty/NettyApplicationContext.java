@@ -69,5 +69,8 @@ public final class NettyApplicationContext extends ApplicationContext {
         if (workerGroup != null) {
             workerGroup.shutdownGracefully().syncUninterruptibly();
         }
+        if (application != null) {
+            application.shutdown();
+        }
     }
 }

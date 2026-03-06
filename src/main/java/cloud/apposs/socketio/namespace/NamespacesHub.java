@@ -2,21 +2,30 @@ package cloud.apposs.socketio.namespace;
 
 import cloud.apposs.logger.Logger;
 import cloud.apposs.socketio.SocketIOConfig;
-import io.netty.util.internal.PlatformDependent;
+import cloud.apposs.socketio.distributed.IDistributedService;
 
 import java.util.Collection;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
 
 /**
- * Namespace命名空间管理服务，负责管理SocketIO服务所有的命名空间
+ * Namespace命名空间管理服务，负责如下功能：
+ * <pre>
+ *  1. 管理SocketIO服务所有的命名空间
+ *  2. 负责分布式环境下命名空间的消息分发和同步
+ * </pre>
  */
 public final class NamespacesHub {
     private final SocketIOConfig configuration;
 
-    private final ConcurrentMap<String, Namespace> namespaces = PlatformDependent.newConcurrentHashMap();
+    private final ConcurrentMap<String, Namespace> namespaces = new ConcurrentHashMap<>();
 
-    public NamespacesHub(SocketIOConfig configuration) {
+    private final IDistributedService distributedService;
+
+    public NamespacesHub(SocketIOConfig configuration, IDistributedService distributedService) {
         this.configuration = configuration;
+        this.distributedService = distributedService;
+        distributedService.initialize(configuration, this);
     }
 
     /**
@@ -27,7 +36,7 @@ public final class NamespacesHub {
     public Namespace create(String name) {
         Namespace namespace = namespaces.get(name);
         if (namespace == null) {
-            namespace = new Namespace(name, configuration);
+            namespace = new Namespace(name, configuration, distributedService);
             Namespace oldNamespace = namespaces.putIfAbsent(name, namespace);
             if (oldNamespace != null) {
                 namespace = oldNamespace;

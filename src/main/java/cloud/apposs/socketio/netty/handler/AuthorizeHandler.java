@@ -1,11 +1,13 @@
 package cloud.apposs.socketio.netty.handler;
 
 import cloud.apposs.logger.Logger;
-import cloud.apposs.socketio.*;
+import cloud.apposs.socketio.SocketIOConfig;
+import cloud.apposs.socketio.SocketIOContextHolder;
+import cloud.apposs.socketio.SocketIOSession;
+import cloud.apposs.socketio.SocketIOSessionBox;
 import cloud.apposs.socketio.interceptor.CommandarInterceptorSupport;
 import cloud.apposs.socketio.messages.HttpErrorMessage;
 import cloud.apposs.socketio.protocol.*;
-import cloud.apposs.socketio.scheduler.CancelableScheduler;
 import cloud.apposs.socketio.scheduler.SchedulerKey;
 import cloud.apposs.socketio.scheduler.SchedulerKey.Type;
 import cloud.apposs.socketio.transport.Transport;
@@ -24,29 +26,23 @@ import static io.netty.handler.codec.http.HttpVersion.HTTP_1_1;
 
 @Sharable
 public class AuthorizeHandler extends ChannelInboundHandlerAdapter {
-    private final CancelableScheduler scheduler;
     private final SocketIOConfig configuration;
     private final SocketIOContextHolder contextHolder;
     private final SocketIOSessionBox sessionBox;
-    private final Disconnectable disconnectable;
 
     private final List<Transport> supportTransports = Arrays.asList(Transport.WEBSOCKET, Transport.POLLING);
 
-    public AuthorizeHandler(SocketIOConfig configuration,
-                            CancelableScheduler scheduler, SocketIOContextHolder contextHolder,
-                            SocketIOSessionBox sessionBox, Disconnectable disconnectable) {
+    public AuthorizeHandler(SocketIOConfig configuration, SocketIOContextHolder contextHolder, SocketIOSessionBox sessionBox) {
         super();
         this.configuration = configuration;
-        this.scheduler = scheduler;
         this.contextHolder = contextHolder;
         this.sessionBox = sessionBox;
-        this.disconnectable = disconnectable;
     }
 
     @Override
     public void channelActive(final ChannelHandlerContext context) throws Exception {
         SchedulerKey key = new SchedulerKey(Type.PING_TIMEOUT, context.channel());
-        scheduler.schedule(key, () -> {
+        contextHolder.getScheduler().schedule(key, () -> {
             context.channel().close();
             if (Logger.isDebugEnabled()) {
                 Logger.debug("Client with ip %s opened channel but doesn't send any data! Channel closed!",
@@ -68,7 +64,7 @@ public class AuthorizeHandler extends ChannelInboundHandlerAdapter {
     @Override
     public void channelRead(ChannelHandlerContext context, Object message) throws Exception {
         SchedulerKey key = new SchedulerKey(Type.PING_TIMEOUT, context.channel());
-        scheduler.cancel(key);
+        contextHolder.getScheduler().cancel(key);
 
         if (message instanceof FullHttpRequest) {
             FullHttpRequest request = (FullHttpRequest) message;
@@ -97,7 +93,7 @@ public class AuthorizeHandler extends ChannelInboundHandlerAdapter {
     }
 
     private boolean authorize(Channel channel, QueryStringDecoder decoder, FullHttpRequest request) throws Exception {
-        Map<String, List<String>> headers = new HashMap<String, List<String>>(request.headers().names().size());
+        Map<String, List<String>> headers = new HashMap<>(request.headers().names().size());
         Map<String, List<String>> parameters = decoder.parameters();
         for (String name : request.headers().names()) {
             List<String> values = request.headers().getAll(name);
@@ -141,8 +137,8 @@ public class AuthorizeHandler extends ChannelInboundHandlerAdapter {
         }
 
         UUID sessionId = UUID.randomUUID();
-        SocketIOSession session = new SocketIOSession(sessionId, decoder.path(), handshakeData,
-                transport, scheduler, sessionBox, contextHolder, configuration, parameters, disconnectable);
+        SocketIOSession session = new SocketIOSession(decoder.path(), sessionId,
+                handshakeData, transport, sessionBox, contextHolder, configuration, parameters);
         channel.attr(SocketIOSession.SESSION).set(session);
         sessionBox.addSession(session);
 
@@ -158,15 +154,15 @@ public class AuthorizeHandler extends ChannelInboundHandlerAdapter {
 
         session.schedulePing();
         session.schedulePingTimeout();
+        session.scheduleRenewal();
         if (Logger.isDebugEnabled()) {
-            Logger.debug("Handshake authorized for sessionId: %s, query parameters: %s headers: %s",
-                    sessionId, parameters, headers);
+            Logger.debug("Handshake authorized for sessionId: %s, query parameters: %s headers: %s", sessionId, parameters, headers);
         }
         return true;
     }
 
     private void writeAndFlushTransportError(Channel channel, String origin) {
-        Map<String, Object> errorData = new HashMap<String, Object>();
+        Map<String, Object> errorData = new HashMap<>();
         errorData.put("code", 0);
         errorData.put("message", "Transport unknown");
 
@@ -176,6 +172,6 @@ public class AuthorizeHandler extends ChannelInboundHandlerAdapter {
 
     public void connect(UUID sessionId) {
         SchedulerKey key = new SchedulerKey(Type.PING_TIMEOUT, sessionId);
-        scheduler.cancel(key);
+        contextHolder.getScheduler().cancel(key);
     }
 }

@@ -97,10 +97,10 @@ public class PollingTransport extends ChannelInboundHandlerAdapter {
     @Override
     public void channelInactive(ChannelHandlerContext context) throws Exception {
         final Channel channel = context.channel();
-        SocketIOSession client = sessionBox.get(channel);
-        if (client != null && client.isTransportChannel(context.channel(), Transport.POLLING)) {
-            Logger.debug("channel inactive %s", client.getSessionId());
-            client.releasePollingChannel(channel);
+        SocketIOSession session = sessionBox.get(channel);
+        if (session != null && session.isTransportChannel(context.channel(), Transport.POLLING)) {
+            Logger.debug("channel inactive %s", session.getSessionId());
+            session.releasePollingChannel(channel);
         }
         super.channelInactive(context);
     }

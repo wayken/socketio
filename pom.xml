@@ -14,6 +14,8 @@
 
     <properties>
         <jackson.version>2.15.2</jackson.version>
+        <redission.version>4.1.0</redission.version>
+        <hazelcast.version>5.2.5</hazelcast.version>
     </properties>
 
     <dependencies>
@@ -35,6 +37,12 @@
         </dependency>
         <dependency>
             <groupId>cloud.apposs</groupId>
+            <artifactId>teambeit-protobuf</artifactId>
+            <version>${cloud.apposs.protobuf.version}</version>
+            <scope>compile</scope>
+        </dependency>
+        <dependency>
+            <groupId>cloud.apposs</groupId>
             <artifactId>teambeit-configure</artifactId>
             <version>${cloud.apposs.configure.version}</version>
             <scope>compile</scope>
@@ -50,6 +58,7 @@
             <artifactId>netty-all</artifactId>
             <scope>compile</scope>
         </dependency>
+
         <!-- https://mvnrepository.com/artifact/com.fasterxml.jackson.core/jackson-core -->
         <dependency>
             <groupId>com.fasterxml.jackson.core</groupId>
@@ -61,6 +70,20 @@
             <groupId>com.fasterxml.jackson.core</groupId>
             <artifactId>jackson-databind</artifactId>
             <version>${jackson.version}</version>
+        </dependency>
+        <!-- Source: https://mvnrepository.com/artifact/com.hazelcast/hazelcast -->
+        <dependency>
+            <groupId>com.hazelcast</groupId>
+            <artifactId>hazelcast</artifactId>
+            <version>${hazelcast.version}</version>
+            <scope>provided</scope>
+        </dependency>
+        <!-- Source: https://mvnrepository.com/artifact/org.redisson/redisson -->
+        <dependency>
+            <groupId>org.redisson</groupId>
+            <artifactId>redisson</artifactId>
+            <version>${redission.version}</version>
+            <scope>provided</scope>
         </dependency>
     </dependencies>
 </project>

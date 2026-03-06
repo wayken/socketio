@@ -3,41 +3,48 @@ package cloud.apposs.socketio.netty;
 import cloud.apposs.ioc.BeanFactory;
 import cloud.apposs.socketio.SocketIOConfig;
 import cloud.apposs.socketio.SocketIOContextHolder;
+import cloud.apposs.socketio.SocketIOSession;
 import cloud.apposs.socketio.SocketIOSessionBox;
+import cloud.apposs.socketio.ack.AckManager;
 import cloud.apposs.socketio.annotation.Order;
 import cloud.apposs.socketio.annotation.ServerEndpoint;
 import cloud.apposs.socketio.commandar.CommandarInvocation;
 import cloud.apposs.socketio.commandar.CommandarRouter;
+import cloud.apposs.socketio.distributed.DistributedServiceFactory;
+import cloud.apposs.socketio.distributed.IDistributedService;
+import cloud.apposs.socketio.distributed.pubsub.IPubSubService;
 import cloud.apposs.socketio.interceptor.CommandarInterceptor;
 import cloud.apposs.socketio.interceptor.CommandarInterceptorSupport;
 import cloud.apposs.socketio.namespace.NamespacesHub;
 import cloud.apposs.socketio.protocol.JsonSupport;
 import cloud.apposs.socketio.protocol.JsonSupportWrapper;
+import cloud.apposs.socketio.scheduler.CancelableScheduler;
+import cloud.apposs.socketio.scheduler.HashedWheelTimeoutScheduler;
 import cloud.apposs.util.StrUtil;
 
 import java.lang.reflect.Method;
-import java.util.Collections;
-import java.util.Comparator;
-import java.util.List;
+import java.util.*;
 
 public class ApplicationHandler {
-    /** IOC容器 */
     private final BeanFactory beanFactory;
 
-    /**
-     * 指令映射
-     */
     private final CommandarRouter commandarRouter;
 
     private final CommandarInvocation commandarInvocation;
 
     private final CommandarInterceptorSupport commandarInterceptorSupport = new CommandarInterceptorSupport();
 
+    private final CancelableScheduler scheduler = new HashedWheelTimeoutScheduler();
+
+    private final AckManager ackManager;
+
     private final SocketIOContextHolder contextHolder;
 
     private final SocketIOSessionBox sessionBox = new SocketIOSessionBox();
 
     private final NamespacesHub namespacesHub;
+
+    private final IDistributedService distributedService;
 
     /**
      * Netty IO处理器初始化
@@ -79,7 +86,10 @@ public class ApplicationHandler {
         beanFactory.load(basePackageList);
         // 扫描basePackage包下所有的ServerEndpoint注解类，并注册到命名空间中和Commandar处理器中
         List<Class<?>> endpointClassList = beanFactory.getClassAnnotationList(ServerEndpoint.class);
-        namespacesHub = new NamespacesHub(configuration);
+        // 初始化分布式服务
+        distributedService = DistributedServiceFactory.newDistributedService(configuration.getDistributedType(), configuration);
+        // 初始化命名空间中心
+        namespacesHub = new NamespacesHub(configuration, distributedService);
         for (Class<?> endpointClass : endpointClassList) {
             ServerEndpoint serverEndpoint = endpointClass.getAnnotation(ServerEndpoint.class);
             // 初始化命名空间
@@ -108,13 +118,32 @@ public class ApplicationHandler {
             commandarInterceptorSupport.addInterceptor(interceptor);
         }
         // 初始化IO处理器
-        contextHolder = new SocketIOContextHolder(namespacesHub, commandarRouter, commandarInvocation, commandarInterceptorSupport);
-        pipeline = new SocketIOChannelInitializer(contextHolder, sessionBox);
+        ackManager = new AckManager(scheduler);
+        contextHolder = new SocketIOContextHolder(namespacesHub, scheduler, ackManager,
+                distributedService, commandarRouter, commandarInvocation, commandarInterceptorSupport);
+        pipeline = new SocketIOChannelInitializer(contextHolder, sessionBox, ackManager);
         pipeline.initialize(configuration);
     }
 
     public SocketIOChannelInitializer getPipeline() {
         return pipeline;
+    }
+
+    /**
+     * 应用关闭时调用，进行资源清理等操作，包括
+     * <pre>
+     *      1. 注销所有会话的分布式订阅
+     * </pre>
+     */
+    public void shutdown() {
+        Map<UUID, SocketIOSession> sessions = sessionBox.getSessionBox();
+        IPubSubService pubsubService = distributedService.getPubSubService();
+        for (Map.Entry<UUID, SocketIOSession> socketIOSessionEntry : sessions.entrySet()) {
+            UUID sessionId = socketIOSessionEntry.getKey();
+            SocketIOSession session = socketIOSessionEntry.getValue();
+            pubsubService.unregisterSession(session.getNamespace().getName(), sessionId);
+        }
+        distributedService.shutdown();
     }
 
     /**

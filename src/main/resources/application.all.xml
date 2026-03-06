@@ -7,8 +7,11 @@
     <property name="charset">utf-8</property>
     <!-- 绑定主机和端口 -->
     <property name="host">0.0.0.0</property>
-    <property name="port">9088</property>
+    <property name="port">9089</property>
     <property name="keepAlive">true</property>
+    <!-- 分布式部署配置相关 -->
+    <property name="distributedType">memory</property>
+    <property name="distributedServerAddress">192.168.5.57:6030</property>
     <!-- 日志相关配置 -->
     <!-- 日志输出级别，可为FATAL（致命）、ERROR（错误）、WARN（警告）、INFO（信息）、DEBUG（调试）、TRACE（追踪）、OFF（关闭） -->
     <property name="logLevel">info</property>

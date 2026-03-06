@@ -8,15 +8,17 @@ import cloud.apposs.socketio.commandar.Commandar;
 import cloud.apposs.socketio.commandar.CommandarInvocation;
 import cloud.apposs.socketio.commandar.CommandarRouter;
 import cloud.apposs.socketio.commandar.ParameterResolver;
+import cloud.apposs.socketio.distributed.IDistributedService;
+import cloud.apposs.socketio.distributed.pubsub.IPubSubService;
 import cloud.apposs.socketio.interceptor.CommandarInterceptorSupport;
 import cloud.apposs.socketio.namespace.Namespace;
 import cloud.apposs.socketio.namespace.NamespacesHub;
 import cloud.apposs.socketio.protocol.EngineIOVersion;
 import cloud.apposs.socketio.protocol.Packet;
 import cloud.apposs.socketio.protocol.PacketType;
+import cloud.apposs.socketio.scheduler.CancelableScheduler;
 
 import java.util.List;
-import java.util.Objects;
 
 /**
  * SocketIO全局上下文
@@ -24,15 +26,31 @@ import java.util.Objects;
 public final class SocketIOContextHolder {
     private final NamespacesHub namespacesHub;
 
+    private final Disconnectable disconnectable;
+
+    private final CancelableScheduler scheduler;
+
+    private final IDistributedService distributedService;
+
     private final CommandarRouter commandarRouter;
 
     private final CommandarInvocation commandarInvocation;
 
     private final CommandarInterceptorSupport commandarInterceptorSupport;
 
-    public SocketIOContextHolder(NamespacesHub namespacesHub, CommandarRouter commandarRouter,
-                                 CommandarInvocation commandarInvocation, CommandarInterceptorSupport commandarInterceptorSupport) {
+    public SocketIOContextHolder(
+            NamespacesHub namespacesHub,
+            CancelableScheduler scheduler,
+            Disconnectable disconnectable,
+            IDistributedService distributedService,
+            CommandarRouter commandarRouter,
+            CommandarInvocation commandarInvocation,
+            CommandarInterceptorSupport commandarInterceptorSupport
+    ) {
         this.namespacesHub = namespacesHub;
+        this.scheduler = scheduler;
+        this.disconnectable = disconnectable;
+        this.distributedService = distributedService;
         this.commandarRouter = commandarRouter;
         this.commandarInvocation = commandarInvocation;
         this.commandarInterceptorSupport = commandarInterceptorSupport;
@@ -40,6 +58,10 @@ public final class SocketIOContextHolder {
 
     public NamespacesHub getNamespacesHub() {
         return namespacesHub;
+    }
+
+    public CancelableScheduler getScheduler() {
+        return scheduler;
     }
 
     public CommandarInterceptorSupport getCommandarInterceptorSupport() {
@@ -57,16 +79,16 @@ public final class SocketIOContextHolder {
     public void onConnect(SocketIOSession session) throws Exception {
         // 第一次连接时需要设置命名空间并触发连接成功回调事件
         // 如果是通过 Polling Http 请求来触发的，则是连续请求多次，只有第一次请求才会触发连接成功回调事件
-        if (Objects.nonNull(session.getNamespace())) {
-            return;
-        }
         Packet packet = new Packet(PacketType.MESSAGE, session.getVersion());
         packet.setSubType(PacketType.CONNECT);
         if (!EngineIOVersion.V4.equals(session.getVersion())) {
             session.send(packet);
         }
         Namespace namespace = namespacesHub.get(session.getPath());
-        session.setNamespace(namespace);
+        namespace.onConnect(session);
+        // 注册当前客户端信息到分布式注册中心
+        IPubSubService pubsubService = distributedService.getPubSubService();
+        pubsubService.registerSession(namespace.getName(), session.getSessionId());
         // 获取注解接口的 OnConnect 方法并执行连接成功回调
         List<Commandar> onConnectCommandList = commandarRouter.getCommandar(session.getPath(), OnConnect.class.getSimpleName());
         if (onConnectCommandList != null) {
@@ -116,6 +138,12 @@ public final class SocketIOContextHolder {
     }
 
     public void onDisconnect(SocketIOSession session) throws Exception {
+        // 触发断开连接回调事件
+        disconnectable.onDisconnect(session);
+        // 从分布式注册中心注销客户端
+        IPubSubService pubsubService = distributedService.getPubSubService();
+        pubsubService.unregisterSession(session.getNamespace().getName(), session.getSessionId());
+        // 获取注解接口的 OnDisconnect 方法并执行断开连接回调
         List<Commandar> onDisconnectCommandList = commandarRouter.getCommandar(session.getPath(), OnDisconnect.class.getSimpleName());
         if (onDisconnectCommandList != null) {
             for (Commandar commandar : onDisconnectCommandList) {

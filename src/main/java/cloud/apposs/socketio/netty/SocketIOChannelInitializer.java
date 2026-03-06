@@ -1,14 +1,14 @@
 package cloud.apposs.socketio.netty;
 
-import cloud.apposs.logger.Logger;
-import cloud.apposs.socketio.*;
+import cloud.apposs.socketio.SocketIOConfig;
+import cloud.apposs.socketio.SocketIOContextHolder;
+import cloud.apposs.socketio.SocketIOSessionBox;
 import cloud.apposs.socketio.ack.AckManager;
 import cloud.apposs.socketio.netty.handler.*;
 import cloud.apposs.socketio.protocol.JsonSupport;
 import cloud.apposs.socketio.protocol.PacketDecoder;
 import cloud.apposs.socketio.protocol.PacketEncoder;
 import cloud.apposs.socketio.scheduler.CancelableScheduler;
-import cloud.apposs.socketio.scheduler.HashedWheelTimeoutScheduler;
 import cloud.apposs.socketio.transport.PollingTransport;
 import cloud.apposs.socketio.transport.WebSocketTransport;
 import io.netty.channel.Channel;
@@ -21,7 +21,7 @@ import io.netty.handler.ssl.SslHandler;
 import javax.net.ssl.*;
 import java.security.KeyStore;
 
-public class SocketIOChannelInitializer extends ChannelInitializer<Channel> implements Disconnectable {
+public class SocketIOChannelInitializer extends ChannelInitializer<Channel> {
     public static final String HTTP_REQUEST_DECODER = "httpDecoder";
     public static final String HTTP_ENCODER = "httpEncoder";
     public static final String HTTP_AGGREGATOR = "httpAggregator";
@@ -47,15 +47,14 @@ public class SocketIOChannelInitializer extends ChannelInitializer<Channel> impl
     private SocketIOConfig configuration;
     private SSLContext sslContext;
 
-    private CancelableScheduler scheduler = new HashedWheelTimeoutScheduler();
-
     private final SocketIOContextHolder contextHolder;
 
     private final SocketIOSessionBox sessionBox;
 
-    public SocketIOChannelInitializer(SocketIOContextHolder contextHolder, SocketIOSessionBox sessionBox) {
+    public SocketIOChannelInitializer(SocketIOContextHolder contextHolder, SocketIOSessionBox sessionBox, AckManager ackManager) {
         this.contextHolder = contextHolder;
         this.sessionBox = sessionBox;
+        this.ackManager = ackManager;
     }
 
     public SocketIOChannelInitializer initialize(SocketIOConfig configuration) throws Exception {
@@ -69,8 +68,9 @@ public class SocketIOChannelInitializer extends ChannelInitializer<Channel> impl
             }
         }
 
+        CancelableScheduler scheduler = contextHolder.getScheduler();
         this.ackManager = new AckManager(scheduler);
-        this.authorizeHandler = new AuthorizeHandler(configuration, scheduler, contextHolder, sessionBox, this);
+        this.authorizeHandler = new AuthorizeHandler(configuration, contextHolder, sessionBox);
         JsonSupport jsonSupport = configuration.getJsonSupport();
         PacketDecoder decoder = new PacketDecoder(jsonSupport, ackManager);
         this.xhrPollingTransport = new PollingTransport(decoder, contextHolder, sessionBox);
@@ -143,13 +143,5 @@ public class SocketIOChannelInitializer extends ChannelInitializer<Channel> impl
         pipeline.addLast(WEB_SOCKET_TRANSPORT, webSocketTransport);
         pipeline.addLast(PACKET_ENCODE_HANDLER, packetEncodeHandler);
         pipeline.addLast(WRONG_URL_HANDLER, wrongUrlHandler);
-    }
-
-    @Override
-    public void onDisconnect(SocketIOSession session) {
-        ackManager.onDisconnect(session);
-        if (Logger.isDebugEnabled()) {
-            Logger.debug("Client with sessionId: %s disconnected", session.getSessionId());
-        }
     }
 }

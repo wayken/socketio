@@ -26,7 +26,7 @@ public final class CommandarRouter {
      * 数据结构为：
      * RouterPath->List<Commandar>，利用此数据结构可以实现一个SocketIO指令的多种匹配
      */
-    private final Map<RouterPath, List<Commandar>> commandars = new ConcurrentHashMap<RouterPath, List<Commandar>>();
+    private final Map<RouterPath, List<Commandar>> commandars = new ConcurrentHashMap<>();
 
     public CommandarRouter(SocketIOConfig configuration) {
         this.jsonSupport = configuration.getJsonSupport();
