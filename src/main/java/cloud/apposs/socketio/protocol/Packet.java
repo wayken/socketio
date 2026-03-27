@@ -109,7 +109,7 @@ public class Packet implements Serializable {
 
     public void setNsp(String endpoint) {
         if (endpoint.equals("{}")){
-            endpoint="";
+            endpoint = "";
         }
         this.nsp = endpoint;
     }

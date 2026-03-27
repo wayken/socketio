@@ -39,6 +39,7 @@ public class SocketIoEndpoint {
      */
     @OnEvent("binary_send")
     public void onBinaryEvent01(SocketIOSession session, byte[] data) {
+        System.out.println("onBinaryEvent01, data length: " + new String(data));
         session.sendEvent("binary_send", data);
     }
 

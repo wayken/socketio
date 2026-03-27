@@ -1,5 +1,6 @@
 package cloud.apposs.socketio.protocol;
 
+import cloud.apposs.socketio.SocketIOConstants;
 import cloud.apposs.socketio.SocketIOSession;
 import cloud.apposs.socketio.ack.AckCallback;
 import cloud.apposs.socketio.ack.AckManager;
@@ -12,6 +13,7 @@ import io.netty.util.CharsetUtil;
 import java.io.IOException;
 import java.net.URLDecoder;
 import java.util.LinkedList;
+import java.util.Map;
 
 public class PacketDecoder {
     private final UTF8CharsScanner utf8scanner = new UTF8CharsScanner();
@@ -122,15 +124,29 @@ public class PacketDecoder {
     }
 
     private Packet decode(SocketIOSession session, ByteBuf frame) throws Exception {
-        if ((frame.getByte(0) == 'b' && frame.getByte(1) == '4')
-                || frame.getByte(0) == 4 || frame.getByte(0) == 1) {
-            return parseBinary(session, frame);
+        Packet lastPacket = session.getLastBinaryPacket();
+        // Assume attachments follow.
+        if (lastPacket != null) {
+            if (lastPacket.hasAttachments() && !lastPacket.isAttachmentsLoaded()) {
+                return parseBinary(session, frame, lastPacket);
+            }
         }
-        PacketType type = readType(frame);
+
+        final int separatorPos = frame.bytesBefore((byte) 0x1E);
+        final ByteBuf packetBuf;
+        if (separatorPos > 0) {
+            // Multiple packets in one, copy out the next packet to parse
+            packetBuf = frame.copy(frame.readerIndex(), separatorPos);
+            frame.skipBytes(separatorPos + 1);
+        } else {
+            packetBuf = frame;
+        }
+
+        PacketType type = readType(packetBuf);
         Packet packet = new Packet(type, session.getVersion());
 
         if (type == PacketType.PING) {
-            packet.setData(readString(frame));
+            packet.setData(readString(packetBuf));
             return packet;
         }
 
@@ -180,63 +196,41 @@ public class PacketDecoder {
         }
     }
 
-    private Packet parseBinary(SocketIOSession session, ByteBuf frame) throws Exception {
-        if (frame.getByte(0) == 1) {
-            frame.readByte();
-            int headEndIndex = frame.bytesBefore((byte)-1);
-            int len = (int) readLong(frame, headEndIndex);
-            ByteBuf oldFrame = frame;
-            frame = frame.slice(oldFrame.readerIndex() + 1, len);
-            oldFrame.readerIndex(oldFrame.readerIndex() + 1 + len);
-        }
+    private Packet parseBinary(SocketIOSession session, ByteBuf frame, Packet binaryPacket) throws Exception {
+        ByteBuf attachBuf = Base64.encode(frame);
+        binaryPacket.addAttachment(Unpooled.copiedBuffer(attachBuf));
+        attachBuf.release();
+        frame.skipBytes(frame.readableBytes());
 
-        if (frame.getByte(0) == 'b' && frame.getByte(1) == '4') {
-            frame.readShort();
-        } else if (frame.getByte(0) == 4) {
-            frame.readByte();
-        }
-
-        Packet binaryPacket = session.getLastBinaryPacket();
-        if (binaryPacket != null) {
-            if (frame.getByte(0) == 'b' && frame.getByte(1) == '4') {
-                binaryPacket.addAttachment(Unpooled.copiedBuffer(frame));
-            } else {
-                ByteBuf attachBuf = Base64.encode(frame);
-                binaryPacket.addAttachment(Unpooled.copiedBuffer(attachBuf));
-                attachBuf.release();
-            }
-            frame.readerIndex(frame.readerIndex() + frame.readableBytes());
-
-            if (binaryPacket.isAttachmentsLoaded()) {
-                LinkedList<ByteBuf> slices = new LinkedList<ByteBuf>();
-                ByteBuf source = binaryPacket.getDataSource();
-                for (int i = 0; i < binaryPacket.getAttachments().size(); i++) {
-                    ByteBuf attachment = binaryPacket.getAttachments().get(i);
-                    ByteBuf scanValue = Unpooled.copiedBuffer("{\"_placeholder\":true,\"num\":" + i + "}", CharsetUtil.UTF_8);
-                    int pos = PacketEncoder.find(source, scanValue);
+        if (binaryPacket.isAttachmentsLoaded()) {
+            LinkedList<ByteBuf> slices = new LinkedList<ByteBuf>();
+            ByteBuf source = binaryPacket.getDataSource();
+            for (int i = 0; i < binaryPacket.getAttachments().size(); i++) {
+                ByteBuf attachment = binaryPacket.getAttachments().get(i);
+                ByteBuf scanValue = Unpooled.copiedBuffer("{\"_placeholder\":true,\"num\":" + i + "}", CharsetUtil.UTF_8);
+                int pos = PacketEncoder.find(source, scanValue);
+                if (pos == -1) {
+                    scanValue = Unpooled.copiedBuffer("{\"num\":" + i + ",\"_placeholder\":true}", CharsetUtil.UTF_8);
+                    pos = PacketEncoder.find(source, scanValue);
                     if (pos == -1) {
-                        scanValue = Unpooled.copiedBuffer("{\"num\":" + i + ",\"_placeholder\":true}", CharsetUtil.UTF_8);
-                        pos = PacketEncoder.find(source, scanValue);
-                        if (pos == -1) {
-                            throw new IllegalStateException("Can't find attachment by index: " + i + " in packet source");
-                        }
+                        throw new IllegalStateException("Can't find attachment by index: " + i + " in packet source");
                     }
-
-                    ByteBuf prefixBuf = source.slice(source.readerIndex(), pos - source.readerIndex());
-                    slices.add(prefixBuf);
-                    slices.add(QUOTES);
-                    slices.add(attachment);
-                    slices.add(QUOTES);
-
-                    source.readerIndex(pos + scanValue.readableBytes());
                 }
-                slices.add(source.slice());
 
-                ByteBuf compositeBuf = Unpooled.wrappedBuffer(slices.toArray(new ByteBuf[0]));
-                parseBody(session, compositeBuf, binaryPacket);
-                session.setLastBinaryPacket(null);
-                return binaryPacket;
+                ByteBuf prefixBuf = source.slice(source.readerIndex(), pos - source.readerIndex());
+                slices.add(prefixBuf);
+                slices.add(QUOTES);
+                slices.add(attachment);
+                slices.add(QUOTES);
+
+                source.readerIndex(pos + scanValue.readableBytes());
             }
+            slices.add(source.slice());
+
+            ByteBuf compositeBuf = Unpooled.wrappedBuffer(slices.toArray(new ByteBuf[0]));
+            parseBody(session, compositeBuf, binaryPacket);
+            session.setLastBinaryPacket(null);
+            return binaryPacket;
         }
         return new Packet(PacketType.MESSAGE, session.getVersion());
     }
@@ -244,50 +238,78 @@ public class PacketDecoder {
     private void parseBody(SocketIOSession session, ByteBuf frame, Packet packet) throws Exception {
         if (packet.getType() == PacketType.MESSAGE) {
             if (packet.getSubType() == PacketType.CONNECT || packet.getSubType() == PacketType.DISCONNECT) {
-                packet.setNsp(readNamespace(frame));
+                packet.setNsp(readNamespace(frame, false));
+                if (packet.getSubType() == PacketType.CONNECT && frame.readableBytes() > 0) {
+                    final Object authArgs = jsonSupport.readValue(packet.getNsp(), new ByteBufInputStream(frame), Map.class);
+                    packet.setData(authArgs);
+                }
             }
 
             if (packet.hasAttachments() && !packet.isAttachmentsLoaded()) {
                 packet.setDataSource(Unpooled.copiedBuffer(frame));
-                frame.readerIndex(frame.readableBytes());
+                frame.skipBytes(frame.readableBytes());
                 session.setLastBinaryPacket(packet);
                 return;
             }
 
             if (packet.getSubType() == PacketType.ACK || packet.getSubType() == PacketType.BINARY_ACK) {
-                ByteBufInputStream in = new ByteBufInputStream(frame);
                 AckCallback<?> callback = ackManager.getCallback(session.getSessionId(), packet.getAckId());
-                AckArgs args = jsonSupport.readAckArgs(in, callback);
-                packet.setData(args.getArgs());
+                if (callback != null) {
+                    ByteBufInputStream in = new ByteBufInputStream(frame);
+                    AckArgs args = jsonSupport.readAckArgs(in, callback);
+                    packet.setData(args.getArgs());
+                } else {
+                    frame.clear();
+                }
             }
 
             if (packet.getSubType() == PacketType.EVENT || packet.getSubType() == PacketType.BINARY_EVENT) {
                 ByteBufInputStream in = new ByteBufInputStream(frame);
-                Event event = jsonSupport.readValue(session.getPath(), in, Event.class);
+                String namespace = session.getNamespace().getName();
+                Event event = jsonSupport.readValue(namespace, in, Event.class);
                 packet.setName(event.getName());
                 packet.setData(event.getArgs());
             }
         }
     }
 
-    private String readNamespace(ByteBuf frame) {
+    private String readNamespace(ByteBuf frame, final boolean defaultToAll) {
+
         /**
          * namespace post request with url queryString, like
-         *  /message?a=1,
-         *  /message,
+         *  /message (v1)
+         *  /message?a=1, (v2)
+         *  /message, (v3,v4)
          */
         ByteBuf buffer = frame.slice();
-        // skip this frame
-        frame.readerIndex(frame.readerIndex() + frame.readableBytes());
 
-        int endIndex = buffer.bytesBefore((byte) '?');
-        if (endIndex > 0) {
-            return readString(buffer, endIndex);
+        boolean withSpecialChar = false;
+
+        int namespaceFieldEndIndex = buffer.bytesBefore((byte) ',');
+        if (namespaceFieldEndIndex > 0) {
+            withSpecialChar = true;
+        } else {
+            namespaceFieldEndIndex = buffer.readableBytes();
         }
-        endIndex = buffer.bytesBefore((byte) ',');
-        if (endIndex > 0) {
-            return readString(buffer, endIndex);
+
+        int namespaceEndIndex = buffer.bytesBefore((byte) '?');
+        if (namespaceEndIndex > 0) {
+            withSpecialChar = true;
+        } else {
+            namespaceEndIndex = namespaceFieldEndIndex;
         }
-        return readString(buffer);
+
+        String namespace = readString(buffer, namespaceEndIndex);
+        if (namespace.startsWith("/")) {
+            frame.skipBytes(namespaceFieldEndIndex + (withSpecialChar ? 1 : 0));
+            return namespace;
+        }
+
+        if (defaultToAll) {
+            // skip this frame
+            frame.skipBytes(frame.readableBytes());
+            return readString(buffer);
+        }
+        return SocketIOConstants.DEFAULT_NAMESPACE;
     }
 }
