@@ -2,6 +2,7 @@ package cloud.apposs.socketio.sample;
 
 import cloud.apposs.socketio.SocketIOSession;
 import cloud.apposs.socketio.annotation.*;
+import cloud.apposs.socketio.sample.bean.AttachmentObject;
 import cloud.apposs.socketio.sample.bean.ChatObject;
 
 @ServerEndpoint({"/socket.io"})
@@ -41,6 +42,12 @@ public class SocketIoEndpoint {
     public void onBinaryEvent01(SocketIOSession session, byte[] data) {
         System.out.println("onBinaryEvent01, data length: " + new String(data));
         session.sendEvent("binary_send", data);
+    }
+
+    @OnEvent("attachment_send")
+    public void onAttachment(SocketIOSession session, AttachmentObject attachmentObject, String message) {
+        System.out.println("onAttachment, name: " + attachmentObject.getName() + ", content: " + new String(attachmentObject.getContent()));
+        session.sendEvent("event_send02", "from server1");
     }
 
     @OnError
